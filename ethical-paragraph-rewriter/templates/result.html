@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Rewrite Result | Ethical Paragraph Rewriter{% endblock %}
+
+{% block content %}
+<section class="result-header">
+  <h1>Your ethical rewrite</h1>
+  <a class="secondary-link" href="{{ url_for('index') }}">Rewrite another paragraph</a>
+</section>
+
+<section class="result-section">
+  <h2>Rewritten paragraph</h2>
+  <div class="rewritten-text">{{ rewritten_text }}</div>
+</section>
+
+<section class="result-grid">
+  <div class="result-section">
+    <h2>Major changes made</h2>
+    <ul>
+      {% for change in changes_made %}
+        <li>{{ change }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="result-section similarity-card">
+    <h2>Similarity awareness</h2>
+    <p class="similarity-score">{{ similarity }}%</p>
+    <p>Estimated text similarity between the original and revised paragraph using a simple sequence comparison.</p>
+    {% if high_similarity %}
+      <p class="notice warning">This rewrite is still highly similar to the original. Consider deeper revision, stronger synthesis in your own voice, and citation when source ideas are involved.</p>
+    {% else %}
+      <p class="notice success">The wording appears meaningfully revised, but citation may still be required when the ideas come from a source.</p>
+    {% endif %}
+  </div>
+</section>
+
+{% if source_warning %}
+<section class="notice warning">
+  <h2>Source-material warning</h2>
+  <p>If this text is based on another author’s ideas, cite the original source.</p>
+</section>
+{% endif %}
+
+<section class="result-section citation-reminder">
+  <h2>Citation reminder</h2>
+  <p>{{ citation_reminder }}</p>
+  <p>
+    Paraphrasing does not remove the need for citation. When relevant, include the author, title, URL or DOI,
+    publication details, and access date according to the citation style you are expected to use.
+  </p>
+</section>
+
+<details class="original-details">
+  <summary>View original paragraph</summary>
+  <p>{{ original_text }}</p>
+</details>
+{% endblock %}

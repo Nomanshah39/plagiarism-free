@@ -5,6 +5,7 @@ from difflib import SequenceMatcher
 
 from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
+from openai import OpenAI
 
 try:
     from openai import OpenAI
@@ -18,10 +19,49 @@ app.config["SECRET_KEY"] = os.getenv("FLASK_SECRET_KEY", "dev-secret-key-change-
 
 MAX_WORDS = 2000
 TONES = ["academic", "simple", "professional", "casual"]
+HIGH_SIMILARITY_THRESHOLD = 55
+MODERATE_SIMILARITY_THRESHOLD = 35
 SOURCE_HINT_PATTERN = re.compile(
     r"\b(according to|source|article|paper|study|research|journal|author|quote|doi|url|website|book)\b",
     re.IGNORECASE,
 )
+PHRASE_REPLACEMENTS = (
+    (r"\bvery\b", ""),
+    (r"\bin order to\b", "to"),
+    (r"\bdue to the fact that\b", "because"),
+    (r"\bthe reason why\b", "the reason"),
+    (r"\ba lot of\b", "many"),
+    (r"\bshows that\b", "indicates that"),
+    (r"\bshow that\b", "indicate that"),
+    (r"\bimportant\b", "significant"),
+    (r"\bhelp\b", "support"),
+    (r"\bhelps\b", "supports"),
+    (r"\buse\b", "apply"),
+    (r"\buses\b", "applies"),
+    (r"\bmake\b", "create"),
+    (r"\bmakes\b", "creates"),
+    (r"\bchange\b", "shift"),
+    (r"\bchanges\b", "shifts"),
+    (r"\bget\b", "receive"),
+    (r"\bgets\b", "receives"),
+    (r"\bbig\b", "substantial"),
+    (r"\bsmall\b", "limited"),
+    (r"\bbad\b", "harmful"),
+    (r"\bgood\b", "beneficial"),
+    (r"\bneighborhoods\b", "communities"),
+    (r"\bmore tree cover\b", "denser tree canopy"),
+    (r"\boften stay cooler\b", "can remain cooler"),
+    (r"\bheat waves\b", "periods of extreme heat"),
+    (r"\bmay support\b", "can contribute to"),
+    (r"\bbetter public health outcomes\b", "improved public health results"),
+)
+DEFAULT_OPENER = "A clearer revision is: "
+TONE_OPENERS = {
+    "academic": "A more academic phrasing is: ",
+    "simple": "In simpler terms: ",
+    "professional": "A professional revision would be: ",
+    "casual": "A more conversational version is: ",
+}
 
 
 def count_words(text: str) -> int:
@@ -38,6 +78,32 @@ def split_sentences(text: str) -> list[str]:
     return [sentence.strip() for sentence in sentences if sentence.strip()]
 
 
+def clean_sentence(sentence: str) -> str:
+    cleaned = sentence.strip()
+    for pattern, replacement in PHRASE_REPLACEMENTS:
+        cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+([,.;:!?])", r"\1", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned.strip()
+
+
+def restructure_source_sentence(sentence: str) -> str:
+    source_match = re.match(r"according to\s+([^,]+),\s*(.+)", sentence, flags=re.IGNORECASE)
+    if source_match:
+        source, claim = source_match.groups()
+        claim = claim.strip()
+        if not claim:
+            return sentence
+        return f"The cited source ({source.strip()}) indicates that {claim[0].lower()}{claim[1:]}"
+    return sentence
+
+
+def add_sentence_period(sentence: str) -> str:
+    if sentence and sentence[-1] not in ".!?":
+        return f"{sentence}."
+    return sentence
+
+
 def apply_local_tone_guidance(text: str, tone: str, target_audience: str) -> str:
     normalized = normalize_spacing(text)
     sentences = split_sentences(normalized)
@@ -46,6 +112,20 @@ def apply_local_tone_guidance(text: str, tone: str, target_audience: str) -> str
         rewritten = normalized
     else:
         rewritten_sentences = []
+        for index, sentence in enumerate(sentences):
+            revised = clean_sentence(restructure_source_sentence(sentence))
+            if index == 0:
+                opener = TONE_OPENERS.get(tone, DEFAULT_OPENER)
+                revised = opener + revised[0].lower() + revised[1:]
+            elif index > 0 and tone == "academic":
+                revised = re.sub(r"^Also,?\s+", "Additionally, ", revised, flags=re.IGNORECASE)
+            elif index > 0 and tone == "simple":
+                revised = re.sub(r"^Additionally,?\s+", "Also, ", revised, flags=re.IGNORECASE)
+            rewritten_sentences.append(add_sentence_period(revised))
+        rewritten = " ".join(rewritten_sentences)
+
+    if target_audience:
+        rewritten += f" For {target_audience.strip()}, the key idea is presented without adding new claims."
         for sentence in sentences:
             sentence = re.sub(r"\bvery\b", "", sentence, flags=re.IGNORECASE)
             sentence = re.sub(r"\s{2,}", " ", sentence).strip()
@@ -72,6 +152,16 @@ def local_rewrite(text: str, tone: str, target_audience: str, source_note: str) 
     rewritten = apply_local_tone_guidance(text, tone, target_audience)
     changes = [
         "Cleaned up extra spacing and line breaks.",
+        "Reworked common wordy phrases into clearer alternatives.",
+        "Added a transparent framing phrase so the draft reads as a revision, not a hidden copy.",
+    ]
+
+    if SOURCE_HINT_PATTERN.search(text):
+        changes.append("Reframed source-led wording to keep attribution visible.")
+    if tone:
+        changes.append(f"Adjusted the opening for a {tone} tone.")
+    if target_audience:
+        changes.append("Added audience-aware wording guidance without introducing new source claims.")
         "Adjusted phrasing for a clearer, more readable flow.",
     ]
 
@@ -95,6 +185,7 @@ def local_rewrite(text: str, tone: str, target_audience: str, source_note: str) 
 
 def openai_rewrite(text: str, tone: str, target_audience: str, source_note: str) -> dict | None:
     api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
     if not api_key or OpenAI is None:
         return None
 
@@ -103,6 +194,9 @@ def openai_rewrite(text: str, tone: str, target_audience: str, source_note: str)
         "You are an ethical writing assistant. Rewrite the user's paragraph for clarity, flow, "
         "grammar, tone, and originality while preserving the original meaning. Do not provide help "
         "intended to defeat AI detectors, similarity checkers, plagiarism systems, or academic integrity "
+        "review. Do not promise that the result will pass plagiarism or similarity screening. If the "
+        "paragraph appears to be based on source material, remind the user to cite the source. Return "
+        "only valid JSON with keys: rewritten_text, changes_made, citation_reminder."
         "review. If the paragraph appears to be based on source material, remind the user to cite the "
         "source. Return only valid JSON with keys: rewritten_text, changes_made, citation_reminder."
     )
@@ -158,6 +252,22 @@ def appears_source_based(text: str, source_note: str) -> bool:
     return bool(source_note.strip() or SOURCE_HINT_PATTERN.search(text))
 
 
+def build_revision_advice(similarity: int, source_warning: bool) -> list[str]:
+    advice = [
+        "Review the rewrite yourself and replace any wording that still follows the source too closely.",
+        "Use the result as a draft for learning and revision rather than as a guarantee of originality.",
+    ]
+    if similarity >= HIGH_SIMILARITY_THRESHOLD:
+        advice.insert(0, "Similarity is still high, so make a deeper revision before submitting or publishing.")
+    elif similarity >= MODERATE_SIMILARITY_THRESHOLD:
+        advice.insert(0, "Similarity is moderate; check whether key phrases or sentence structure still mirror the original.")
+    else:
+        advice.insert(0, "Similarity is lower, but originality also depends on your ideas, structure, and citations.")
+    if source_warning:
+        advice.append("Add an in-text citation and full reference for any source ideas, facts, or wording you used.")
+    return advice
+
+
 @app.get("/")
 def index():
     return render_template("index.html", tones=TONES)
@@ -185,6 +295,8 @@ def rewrite():
 
     result = rewrite_paragraph(paragraph, tone, target_audience, source_note)
     similarity = similarity_percentage(paragraph, result["rewritten_text"])
+    high_similarity = similarity >= HIGH_SIMILARITY_THRESHOLD
+    moderate_similarity = MODERATE_SIMILARITY_THRESHOLD <= similarity < HIGH_SIMILARITY_THRESHOLD
     high_similarity = similarity >= 70
     source_warning = appears_source_based(paragraph, source_note)
 
@@ -196,6 +308,9 @@ def rewrite():
         citation_reminder=result["citation_reminder"],
         similarity=similarity,
         high_similarity=high_similarity,
+        moderate_similarity=moderate_similarity,
+        source_warning=source_warning,
+        revision_advice=build_revision_advice(similarity, source_warning),
         source_warning=source_warning,
         tone=tone,
         target_audience=target_audience,

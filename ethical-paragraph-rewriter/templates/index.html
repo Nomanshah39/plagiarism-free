@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Rewrite Ethically | Ethical Paragraph Rewriter{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <h1>Rewrite a paragraph ethically</h1>
+  <p>
+    Paste one paragraph and receive a clearer version with change notes, similarity awareness, and citation guidance.
+    The tool is designed for responsible writing support, not for misrepresenting authorship or avoiding integrity review.
+  </p>
+</section>
+
+<form class="rewrite-form" action="{{ url_for('rewrite') }}" method="post">
+  <label for="paragraph">Paragraph to rewrite <span class="required">*</span></label>
+  <textarea id="paragraph" name="paragraph" rows="12" maxlength="14000" required placeholder="Paste your paragraph here..."></textarea>
+  <p class="field-help">Limit: 2,000 words. Your text is processed for the rewrite request and is not stored permanently by this app.</p>
+
+  <div class="form-grid">
+    <div>
+      <label for="tone">Desired tone</label>
+      <select id="tone" name="tone">
+        <option value="">No preference</option>
+        {% for tone in tones %}
+          <option value="{{ tone }}">{{ tone|capitalize }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div>
+      <label for="target_audience">Target audience</label>
+      <input id="target_audience" name="target_audience" type="text" placeholder="e.g., first-year biology students">
+    </div>
+  </div>
+
+  <label for="source_note">Source/citation note</label>
+  <input id="source_note" name="source_note" type="text" placeholder="e.g., Based on Smith 2024, DOI, article URL, or class reading">
+  <p class="field-help">If the paragraph relies on another author’s ideas, add a note so you remember to cite it properly.</p>
+
+  <button type="submit">Rewrite ethically</button>
+</form>
+{% endblock %}

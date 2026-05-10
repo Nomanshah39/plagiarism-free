@@ -7,6 +7,11 @@ from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
 from openai import OpenAI
 
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover - optional dependency is declared in requirements.txt
+    OpenAI = None
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -121,6 +126,24 @@ def apply_local_tone_guidance(text: str, tone: str, target_audience: str) -> str
 
     if target_audience:
         rewritten += f" For {target_audience.strip()}, the key idea is presented without adding new claims."
+        for sentence in sentences:
+            sentence = re.sub(r"\bvery\b", "", sentence, flags=re.IGNORECASE)
+            sentence = re.sub(r"\s{2,}", " ", sentence).strip()
+            rewritten_sentences.append(sentence)
+        rewritten = " ".join(rewritten_sentences)
+
+    prefix_by_tone = {
+        "academic": "In academic terms, ",
+        "simple": "Simply put, ",
+        "professional": "From a professional perspective, ",
+        "casual": "In everyday language, ",
+    }
+
+    if tone in prefix_by_tone and rewritten:
+        rewritten = prefix_by_tone[tone] + rewritten[0].lower() + rewritten[1:]
+
+    if target_audience:
+        rewritten += f" This version is intended to be clear for {target_audience.strip()}."
 
     return rewritten
 
@@ -139,6 +162,13 @@ def local_rewrite(text: str, tone: str, target_audience: str, source_note: str) 
         changes.append(f"Adjusted the opening for a {tone} tone.")
     if target_audience:
         changes.append("Added audience-aware wording guidance without introducing new source claims.")
+        "Adjusted phrasing for a clearer, more readable flow.",
+    ]
+
+    if tone:
+        changes.append(f"Added light {tone} tone guidance.")
+    if target_audience:
+        changes.append("Added audience-aware wording guidance.")
     if source_note:
         changes.append("Kept citation context visible for responsible attribution.")
 
@@ -156,6 +186,7 @@ def local_rewrite(text: str, tone: str, target_audience: str, source_note: str) 
 def openai_rewrite(text: str, tone: str, target_audience: str, source_note: str) -> dict | None:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
+    if not api_key or OpenAI is None:
         return None
 
     client = OpenAI(api_key=api_key)
@@ -166,6 +197,8 @@ def openai_rewrite(text: str, tone: str, target_audience: str, source_note: str)
         "review. Do not promise that the result will pass plagiarism or similarity screening. If the "
         "paragraph appears to be based on source material, remind the user to cite the source. Return "
         "only valid JSON with keys: rewritten_text, changes_made, citation_reminder."
+        "review. If the paragraph appears to be based on source material, remind the user to cite the "
+        "source. Return only valid JSON with keys: rewritten_text, changes_made, citation_reminder."
     )
     user_payload = {
         "paragraph": text,
@@ -264,6 +297,7 @@ def rewrite():
     similarity = similarity_percentage(paragraph, result["rewritten_text"])
     high_similarity = similarity >= HIGH_SIMILARITY_THRESHOLD
     moderate_similarity = MODERATE_SIMILARITY_THRESHOLD <= similarity < HIGH_SIMILARITY_THRESHOLD
+    high_similarity = similarity >= 70
     source_warning = appears_source_based(paragraph, source_note)
 
     return render_template(
@@ -277,6 +311,7 @@ def rewrite():
         moderate_similarity=moderate_similarity,
         source_warning=source_warning,
         revision_advice=build_revision_advice(similarity, source_warning),
+        source_warning=source_warning,
         tone=tone,
         target_audience=target_audience,
         source_note=source_note,

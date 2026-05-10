@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Ethical Paragraph Rewriter{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <a class="brand" href="{{ url_for('index') }}">Ethical Paragraph Rewriter</a>
+      <p class="tagline">Improve clarity, grammar, tone, and attribution habits.</p>
+    </div>
+  </header>
+
+  <main class="container page-card">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-list" role="alert">
+          {% for category, message in messages %}
+            <p class="flash {{ category }}">{{ message }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <strong>Academic integrity notice:</strong>
+      Use this tool to learn, revise, and communicate more clearly. You are responsible for following your school,
+      publisher, or workplace rules and for citing sources whenever you rely on another author’s ideas, evidence, or words.
+    </div>
+  </footer>
+</body>
+</html>
